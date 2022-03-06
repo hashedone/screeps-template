@@ -1,0 +1,81 @@
+name: Screeps deploy
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v2
+      - name: Rust setup
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+      - name: Rust cache setup
+        uses: Swatinem/rust-cache@v1
+        with:
+          working-directory: ./screeps
+      - name: Format check
+        run: cargo fmt --check
+        working-directory: ./screeps
+      - name: Clippy
+        run: cargo clippy
+        working-directory: ./screeps
+      - name: Tests
+        run: cargo test
+        working-directory: ./screeps
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 1
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v2
+      - name: Rust cache setup
+        uses: Swatinem/rust-cache@v1
+        with:
+          working-directory: ./screeps
+      - name: Wasmpack setup
+        uses: jetli/wasm-pack-action@v0.3.0
+      - name: Build
+        run: wasm-pack build --release --target nodejs -- --features wee
+        working-directory: ./screeps
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wasm-binary
+          path: screeps/pkg
+
+  deploy:
+    needs:
+      - build-wasm
+      - test
+    runs-on: ubuntu-latest
+    env:
+      SCREEPS_EMAIL: ${{ secrets.SCREEPS_EMAIL }}
+      SCREEPS_TOKEN: ${{ secrets.SCREEPS_TOKEN }}
+      SCREEPS_BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v2
+      - name: Node setup
+        uses: actions/setup-node@v2
+        with:
+          node-version: '17'
+          cache: 'npm'
+      - name: Install node modules
+        run: npm install
+      - name: Wasm binary download
+        uses: actions/download-artifact@v3
+        with:
+          name: wasm-binary
+          path: ./wasm-binary
+#      - name: Deploy
+#        run: grunt --pkgdir='wasm-binary' --verbose
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: dist
+
